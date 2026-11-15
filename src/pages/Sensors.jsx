@@ -1,0 +1,498 @@
+import { useMemo, useState } from "react";
+import {
+  Wind,
+  Thermometer,
+  Gauge,
+  Move3d,
+  CircleAlert,
+  Radio,
+  TrendingUp,
+  TrendingDown,
+  Minus,
+  Activity,
+  Droplets,
+} from "lucide-react";
+
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+} from "recharts";
+
+import { useMineContext } from "../context/MineDataContext";
+import SensorCard from "../components/sensors/SensorCard";
+import Badge from "../components/common/Badge";
+
+const bandVariant = {
+  SAFE: "success",
+  MODERATE: "warning",
+  HIGH: "orange",
+  CRITICAL: "danger",
+};
+
+function TrendTag({ trend }) {
+  if (!trend) {
+    return (
+      <span className="flex items-center gap-1 text-xs font-semibold text-slate-400">
+        <Minus size={12} /> Stable
+      </span>
+    );
+  }
+
+  if (trend.direction === "increasing") {
+    return (
+      <span className="flex items-center gap-1 text-xs font-semibold text-amber-400">
+        <TrendingUp size={12} />+{trend.changePercent.toFixed(0)}%
+      </span>
+    );
+  }
+
+  if (trend.direction === "decreasing") {
+    return (
+      <span className="flex items-center gap-1 text-xs font-semibold text-emerald-400">
+        <TrendingDown size={12} />
+        {trend.changePercent.toFixed(0)}%
+      </span>
+    );
+  }
+
+  return (
+    <span className="flex items-center gap-1 text-xs font-semibold text-slate-400">
+      <Minus size={12} /> Stable
+    </span>
+  );
+}
+
+function Sensors() {
+  const { workers, history, firebase, environment } = useMineContext();
+  const [selectedId, setSelectedId] = useState(null);
+
+  const selectedWorker =
+    workers.find((worker) => worker.id === selectedId) || workers[0];
+
+  const firebaseData = firebase?.data || {};
+  const useFb = Boolean(firebase?.connected);
+
+  const count = workers.length || 1;
+  const avgGas =
+    workers.reduce((sum, w) => sum + Number(w.gas || 0), 0) / count;
+  const avgTemp =
+    workers.reduce((sum, w) => sum + Number(w.temperature || 0), 0) / count;
+  const avgMotion =
+    workers.reduce((sum, w) => sum + Number(w.motion || 0), 0) / count;
+
+  const liveGas =
+    useFb && Number.isFinite(Number(firebaseData.gas))
+      ? Number(firebaseData.gas)
+      : avgGas;
+
+  const liveTemperature =
+    useFb && Number.isFinite(Number(firebaseData.temperature))
+      ? Number(firebaseData.temperature)
+      : avgTemp;
+
+  const livePressure =
+    useFb && Number.isFinite(Number(firebaseData.pressure))
+      ? Number(firebaseData.pressure)
+      : environment?.pressure ?? 1013.2;
+
+  const liveMotion =
+    useFb && firebaseData.motion !== undefined
+      ? typeof firebaseData.motion === "boolean"
+        ? firebaseData.motion
+          ? 1
+          : 0
+        : Number(firebaseData.motion)
+      : avgMotion;
+
+  const liveOxygen =
+    useFb && Number.isFinite(Number(firebaseData.oxygen))
+      ? Number(firebaseData.oxygen)
+      : environment?.oxygen ?? 20.6;
+
+  const liveHumidity =
+    useFb && Number.isFinite(Number(firebaseData.humidity))
+      ? Number(firebaseData.humidity)
+      : environment?.humidity ?? 58.4;
+
+  const liveImpact = useFb
+    ? firebaseData.impact === true ||
+      firebaseData.impact === 1 ||
+      firebaseData.impact === "true"
+    : Boolean(environment?.impact);
+
+  const selectedWorkerId = selectedWorker?.id;
+
+  const chartData = useMemo(() => {
+    const workerHistory = history[selectedWorkerId] || [];
+    return workerHistory.map((reading) => ({
+      time: new Date(reading.timestamp).toLocaleTimeString("en-IN", {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      }),
+      gas: reading.gas,
+    }));
+  }, [history, selectedWorkerId]);
+
+  const overviewSensors = useMemo(
+    () => [
+      {
+        name: "Oxygen Level",
+        value: liveOxygen.toFixed(1),
+        unit: "% O₂",
+        status:
+          liveOxygen < 19.0
+            ? "Critical"
+            : liveOxygen < 19.5
+              ? "Elevated"
+              : "Normal",
+        icon: Activity,
+      },
+      {
+        name: "Gas Sensor (Avg)",
+        value: liveGas.toFixed(1),
+        unit: "ppm",
+        status: liveGas > 50 ? "Critical" : liveGas > 30 ? "Elevated" : "Normal",
+        icon: Wind,
+      },
+      {
+        name: "Humidity Level",
+        value: liveHumidity.toFixed(1),
+        unit: "% RH",
+        status: liveHumidity > 75 ? "Elevated" : "Normal",
+        icon: Droplets,
+      },
+      {
+        name: "Temperature (Avg)",
+        value: liveTemperature.toFixed(1),
+        unit: "°C",
+        status: liveTemperature > 38 ? "Elevated" : "Normal",
+        icon: Thermometer,
+      },
+      {
+        name: "Tunnel Pressure",
+        value: livePressure.toFixed(1),
+        unit: "hPa",
+        status: "Normal",
+        icon: Gauge,
+      },
+      {
+        name: "Motion (Avg)",
+        value: liveMotion.toFixed(2),
+        unit: "g",
+        status: liveMotion > 0.5 ? "Abnormal" : "Normal",
+        icon: Move3d,
+      },
+      {
+        name: "Impact",
+        value: liveImpact ? "1" : "0",
+        unit: liveImpact ? "event" : "events",
+        status: liveImpact ? "Impact detected" : "No impact",
+        icon: CircleAlert,
+      },
+    ],
+    [
+      liveOxygen,
+      liveGas,
+      liveHumidity,
+      liveTemperature,
+      livePressure,
+      liveMotion,
+      liveImpact,
+    ]
+  );
+
+  const sensorShape = useMemo(() => {
+    const worker = selectedWorker || {};
+    const workerGas = Number(worker.gas || 0);
+    const workerTemp = Number(worker.temperature || 0);
+    const workerMotion = Number(worker.motion || 0);
+
+    return {
+      id: worker.helmetId,
+      helmetId: worker.helmetId,
+      zone: worker.zone,
+
+      gas: {
+        value: workerGas,
+        unit: "ppm",
+        status:
+          workerGas > 50 ? "Critical" : workerGas > 35 ? "Warning" : "Normal",
+        threshold: 50,
+      },
+
+      temperature: {
+        value: workerTemp,
+        unit: "°C",
+        status: workerTemp > 38 ? "Warning" : "Normal",
+        threshold: 38,
+      },
+
+      motion: {
+        value: workerMotion,
+        unit: "g",
+        status: workerMotion > 0.5 ? "Warning" : "Normal",
+        threshold: 0.5,
+      },
+
+      battery: {
+        value: Math.round(Number(worker.battery || 0)),
+        unit: "%",
+        status: Number(worker.battery || 0) < 30 ? "Critical" : "Good",
+        threshold: 30,
+      },
+
+      signal: {
+        value: Math.round(Number(worker.signal || 0)),
+        unit: "%",
+        status: Number(worker.signal || 0) < 70 ? "Weak" : "Excellent",
+        threshold: 70,
+      },
+    };
+  }, [selectedWorker]);
+
+  if (!selectedWorker) {
+    return null;
+  }
+
+  return (
+    <div className="mx-auto max-w-[1500px] space-y-5">
+      {/* HEADER */}
+      <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-400">
+            Telemetry
+          </p>
+          <h1 className="mt-1 text-2xl font-bold text-white">Sensors</h1>
+          <p className="mt-1 text-xs text-slate-400">
+            Real-time sensor telemetry from smart helmets across the mine.
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2 rounded-xl border border-emerald-400/20 bg-emerald-400/[0.06] px-3 py-2">
+          <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-400" />
+          <span className="text-xs font-semibold text-emerald-400">
+            {useFb ? "Firebase Live" : "Live Demo Telemetry"}
+          </span>
+        </div>
+      </div>
+
+      {/* LIVE SENSOR OVERVIEW */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
+        {overviewSensors.map(({ name, value, unit, status, icon: Icon }) => {
+          const isAlert =
+            status === "Critical" ||
+            status === "Elevated" ||
+            status === "Abnormal" ||
+            status === "Impact detected";
+
+          return (
+            <div
+              key={name}
+              className="rounded-xl border border-white/[0.08] bg-[#0c121c] p-4"
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-cyan-400/10">
+                  <Icon size={17} className="text-cyan-400" />
+                </div>
+
+                <span
+                  className={`h-2 w-2 rounded-full ${
+                    status === "Critical" || status === "Impact detected"
+                      ? "bg-red-400"
+                      : isAlert
+                        ? "bg-amber-400"
+                        : "bg-emerald-400"
+                  }`}
+                />
+              </div>
+
+              <p className="mt-3 text-xs text-slate-400">{name}</p>
+
+              <div className="mt-1 flex items-baseline gap-1.5">
+                <span className="font-mono text-2xl font-bold text-white tabular-nums">
+                  {value}
+                </span>
+                <span className="text-xs text-slate-400">{unit}</span>
+              </div>
+
+              <p
+                className={`mt-2.5 text-xs font-medium ${
+                  status === "Critical" || status === "Impact detected"
+                    ? "text-red-400"
+                    : isAlert
+                      ? "text-amber-400"
+                      : "text-emerald-400"
+                }`}
+              >
+                ● {status}
+              </p>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* HELMET SENSOR HISTORY */}
+      <div className="rounded-2xl border border-white/[0.06] bg-[#0c121c] p-5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-white">
+              Helmet Sensor History
+            </h3>
+            <p className="mt-1 text-xs text-slate-400">
+              Select a worker to inspect their smart helmet&apos;s live and historical readings.
+            </p>
+          </div>
+
+          <select
+            value={selectedWorker.id}
+            onChange={(event) => setSelectedId(event.target.value)}
+            className="h-10 rounded-xl border border-white/[0.08] bg-[#111925] px-3 text-xs text-white outline-none"
+          >
+            {workers.map((worker) => (
+              <option key={worker.id} value={worker.id}>
+                {worker.name} · {worker.helmetId} · {worker.zone}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* SENSOR CARDS */}
+        <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+          <SensorCard sensor={sensorShape} type="gas" compact />
+          <SensorCard sensor={sensorShape} type="temperature" compact />
+          <SensorCard sensor={sensorShape} type="motion" compact />
+          <SensorCard sensor={sensorShape} type="battery" compact />
+          <SensorCard sensor={sensorShape} type="signal" compact />
+        </div>
+
+        {/* CHART + RISK */}
+        <div className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-[1fr_320px]">
+          <div className="rounded-xl border border-white/[0.05] bg-[#080d15] p-4">
+            <p className="mb-3 text-xs uppercase tracking-wider text-slate-400">
+              Gas Trend (ppm) — {selectedWorker.name}
+            </p>
+
+            <div className="h-[220px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={chartData}>
+                  <CartesianGrid
+                    stroke="rgba(255,255,255,0.05)"
+                    vertical={false}
+                  />
+                  <XAxis
+                    dataKey="time"
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fill: "#64748b", fontSize: 10 }}
+                  />
+                  <YAxis
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fill: "#64748b", fontSize: 10 }}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      background: "#111925",
+                      border: "1px solid rgba(255,255,255,0.1)",
+                      borderRadius: "10px",
+                      fontSize: "12px",
+                    }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="gas"
+                    stroke="#22d3ee"
+                    strokeWidth={2}
+                    dot={false}
+                    activeDot={{
+                      r: 4,
+                      fill: "#22d3ee",
+                      stroke: "#0c121c",
+                      strokeWidth: 2,
+                    }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-white/[0.05] bg-white/[0.02] p-4">
+            <div className="flex items-center justify-between">
+              <p className="text-xs uppercase tracking-wider text-slate-400">
+                Risk Level
+              </p>
+              <Badge variant={bandVariant[selectedWorker.band]} dot>
+                {selectedWorker.band}
+              </Badge>
+            </div>
+
+            <p className="mt-2 text-2xl font-bold text-white">
+              {selectedWorker.safetyScore}
+              <span className="text-xs font-normal text-slate-400">/100</span>
+            </p>
+
+            <div className="mt-4 space-y-2 border-t border-white/[0.05] pt-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-slate-400">Gas Trend</span>
+                <TrendTag trend={selectedWorker.trend?.gas} />
+              </div>
+
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-slate-400">Temp Trend</span>
+                <TrendTag trend={selectedWorker.trend?.temperature} />
+              </div>
+            </div>
+
+            <div className="mt-4 border-t border-white/[0.05] pt-3">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                Contributing Factors
+              </p>
+
+              {selectedWorker.explanation?.length > 0 ? (
+                <div className="mt-2 space-y-1.5">
+                  {selectedWorker.explanation.map((line, index) => (
+                    <p
+                      key={index}
+                      className="text-xs leading-relaxed text-slate-300"
+                    >
+                      • {line}
+                    </p>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-2 text-xs leading-relaxed text-emerald-400">
+                  All readings are within the normal safety range.
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* SENSOR NETWORK */}
+      <div className="rounded-2xl border border-white/[0.06] bg-[#0c121c] p-5">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-400/10">
+            <Radio size={18} className="text-emerald-400" />
+          </div>
+
+          <div>
+            <h3 className="text-sm font-semibold text-white">Sensor Network</h3>
+            <p className="text-xs text-slate-400">
+              {workers.length * 5} telemetry channels connected across{" "}
+              {workers.length} smart helmets
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default Sensors;
